@@ -1,0 +1,215 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Nazri Othman"
+date: "December 26, 2015"
+output: html_document
+---
+
+```{r, warning=FALSE, echo=TRUE, message=FALSE}
+
+# set the echo to TRUE and warning to FALSE as global options for this document
+library(knitr)
+opts_chunk$set(echo=TRUE, warning=FALSE)
+
+# load the appropriate packages
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+
+```
+
+
+#Synopsis
+
+###Background
+
+Now, it is possible to collect a large amount of data about personal activity relatively inexpensively by using devices such as Jawbone Up, Nike FuelBand, and Fitbit. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+###Data Input
+
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. 
+
+###Objectives
+
+This project is to predict the manner in which the 6 participants did their exercise. This is the "classe" variable in the training set. 
+
+We may use any of the other variables to predict with. We should then create a report describing,
+
+ - how we built our model
+ - how we used cross validation
+ - what we think the expected out of sample error is
+ - why we made the choices we did
+ 
+We will also use our prediction model to predict 20 different test cases.
+
+#Loading the data
+
+```{r}
+
+set.seed(4472)
+
+trainURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+trainingData <- read.csv(url(trainURL), na.strings=c("NA","#DIV/0!",""))
+testingData <- read.csv(url(testURL), na.strings=c("NA","#DIV/0!",""))
+
+```
+
+Partition the training data into two
+
+```{r}
+
+inTrain <- createDataPartition(trainingData$classe, p=0.6, list=FALSE)
+
+myTrainingData <- trainingData[inTrain, ]
+myTestingData <- trainingData[-inTrain, ]
+
+dim(myTrainingData); dim(myTestingData)
+
+```
+
+#Cleaning the data
+
+```{r}
+
+# Remove Near Zero Variance variables
+nzv <- nearZeroVar(myTrainingData, saveMetrics=TRUE)
+myTrainingData <- myTrainingData[,nzv$nzv==FALSE]
+nzv <- nearZeroVar(myTestingData,saveMetrics=TRUE)
+myTestingData <- myTestingData[,nzv$nzv==FALSE]
+
+# Remove the first column of the myTraining data set
+myTrainingData <- myTrainingData[c(-1)]
+
+
+# Clean variables with more than 60% NA
+temp <- myTrainingData
+for(i in 1:length(myTrainingData)) {
+    if( sum( is.na( myTrainingData[, i] ) ) /nrow(myTrainingData) >= .7) {
+        for(j in 1:length(temp)) {
+            if( length( grep(names(myTrainingData[i]), names(temp)[j]) ) == 1)  {
+                temp <- temp[ , -j]
+            }   
+        } 
+    }
+}
+
+myTrainingData <- temp
+rm(temp)
+
+# remove the classe column
+cleanData1 <- colnames(myTrainingData)
+cleanData2 <- colnames(myTrainingData[, -58]) 
+
+# allow only variables in myTestingData that are also in myTrainingData
+myTestingData <- myTestingData[cleanData1] 
+
+# allow only variables in testing that are also in myTrainingData
+testingData <- testingData[cleanData2]             
+
+dim(myTestingData)
+dim(testingData)
+
+# Coerce the data into the same type
+for (i in 1:length(testingData) ) {
+    for(j in 1:length(myTrainingData)) {
+        if( length( grep(names(myTrainingData[i]), names(testingData)[j]) ) == 1)  {
+            class(testingData[j]) <- class(myTrainingData[i])
+        }      
+    }      
+}
+
+# Get the same class between testingData and myTrainingData
+testingData <- rbind(myTrainingData[2, -58] , testingData)
+testingData <- testingData[-1,]
+
+```
+
+
+#Prediction with Decision Trees
+
+```{r}
+
+set.seed(4472)
+modFitA1 <- rpart(classe ~ ., data=myTrainingData, method="class")
+fancyRpartPlot(modFitA1)
+
+```
+
+```{r}
+
+predictionsA1 <- predict(modFitA1, myTestingData, type = "class")
+cmtree <- confusionMatrix(predictionsA1, myTestingData$classe)
+cmtree
+
+```
+
+```{r}
+
+plot(cmtree$table, col = cmtree$byClass, main = paste("Decision Tree Confusion Matrix: Accuracy =", round(cmtree$overall['Accuracy'], 4)))
+
+```
+
+#Prediction with Random Forests
+
+```{r}
+
+set.seed(4472)
+modFitB1 <- randomForest(classe ~ ., data=myTrainingData)
+predictionB1 <- predict(modFitB1, myTestingData, type = "class")
+cmrf <- confusionMatrix(predictionB1, myTestingData$classe)
+cmrf
+
+```
+
+```{r}
+
+plot(modFitB1)
+
+```
+
+```{r}
+
+plot(cmrf$table, col = cmtree$byClass, main = paste("Random Forest Confusion Matrix: Accuracy =", round(cmrf$overall['Accuracy'], 4)))
+
+```
+
+
+#Predicting Results on the Test Data
+
+Random Forests gave an Accuracy in the myTesting dataset of 99.89%, which was more accurate that what I got from the Decision Trees or GBM. The expected out-of-sample error is 100-99.89 = 0.11%.
+
+```{r}
+
+predictionB2 <- predict(modFitB1, testingData, type = "class")
+predictionB2
+
+```
+
+```{r}
+
+# Write the results to a text file for submission
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+
+pml_write_files(predictionB2)
+
+```
+
